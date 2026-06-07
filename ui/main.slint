@@ -69,10 +69,6 @@ export component MainWindow inherits Window {
                 show-detail = false;
                 return accept;
             }
-            if (event.text == Key.F11) {
-                root.full-screen = !root.full-screen;
-                return accept;
-            }
             return reject;
         }
 
@@ -120,31 +116,6 @@ export component MainWindow inherits Window {
                     
                     Text {
                         text: "⌕ search";
-                        color: #666666;
-                        font-size: 11px;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                }
-            }
-            
-            // Fullscreen toggle button next to search button
-            TouchArea {
-                x: 145px;
-                width: 80px;
-                height: 20px;
-                y: (parent.height - self.height) / 2;
-                clicked => {
-                    root.full-screen = !root.full-screen;
-                }
-                Rectangle {
-                    background: parent.has-hover ? #252525 : #1a1a1a;
-                    border-color: #333333;
-                    border-width: 0.5px;
-                    border-radius: 4px;
-                    
-                    Text {
-                        text: root.full-screen ? "❐ exit full" : "⛶ fullscreen";
                         color: #666666;
                         font-size: 11px;
                         horizontal-alignment: center;
