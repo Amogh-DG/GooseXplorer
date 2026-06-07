@@ -2,7 +2,7 @@ use std::fs;
 use std::time::UNIX_EPOCH;
 use chrono::{TimeZone, Local};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct FileEntry {
     pub name: String,
     pub path: String,
@@ -10,6 +10,12 @@ pub struct FileEntry {
     pub size: u64,
     pub _modified: String,
     pub _extension: String,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct SidebarItem {
+    pub name: String,
+    pub path: String,
 }
 
 /// Lists all files and directories in the specified path.

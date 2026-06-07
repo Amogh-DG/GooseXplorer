@@ -1,0 +1,22 @@
+{
+  "productName": "FileLester",
+  "version": "0.1.0",
+  "identifier": "com.filelester.app",
+  "build": {
+    "frontendDist": "../ui-web/dist",
+    "devUrl": "http://localhost:5173"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "FileLester",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": false,
+        "maximized": true
+      }
+    ]
+  }
+}

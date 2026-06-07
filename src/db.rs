@@ -77,6 +77,7 @@ pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<(), rusq
     Ok(())
 }
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct FileMetadata {
     pub description: String,
     pub tags: String,
@@ -119,7 +120,7 @@ pub fn save_file_description_and_tags(
     Ok(())
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SearchResult {
     pub path: String,
     pub description: String,
