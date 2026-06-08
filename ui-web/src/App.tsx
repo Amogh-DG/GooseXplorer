@@ -659,6 +659,32 @@ export default function App() {
 
     // --- Custom commands ---
 
+    // cd <path> — navigate graphically; PowerShell resolves the path so .., ~, relative all work
+    if (trimmed === "cd" || trimmed.match(/^cd\s+/i)) {
+      const target = trimmed.replace(/^cd\s*/i, "").trim();
+      if (!target) {
+        addLine(currentPath || "~", "out");
+        return;
+      }
+      const cwd = currentPath && !currentPath.startsWith("search results") ? currentPath : "C:\\";
+      try {
+        // Ask PowerShell to resolve the destination and echo it back
+        const escaped = target.replace(/'/g, "''");
+        const resolved = await invoke<string>("run_shell_command", {
+          command: `Set-Location '${escaped}'; (Get-Location).Path`,
+          cwd,
+        });
+        const newPath = resolved.trim();
+        if (newPath) {
+          addLine(newPath, "info");
+          await navigateTo(newPath);
+        }
+      } catch (e) {
+        addLine(`cd: ${String(e).split("\n")[0]}`, "err");
+      }
+      return;
+    }
+
     // unhide all — only unhides items in the current directory
     if (trimmed === "unhide all") {
       const prefix = currentPath ? currentPath.replace(/[/\\]+$/, "") : "";
