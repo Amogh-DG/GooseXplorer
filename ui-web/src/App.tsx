@@ -92,6 +92,11 @@ export default function App() {
   const terminalOutputRef = useRef<HTMLDivElement>(null);
   const terminalInputRef = useRef<HTMLInputElement>(null);
 
+  // Pending numbered choice (for move command with multiple matches)
+  const [pendingChoices, setPendingChoices] = useState<{ label: string; path: string }[] | null>(null);
+  // When true, move command skips hidden folders
+  const [moveRestrictHidden, setMoveRestrictHidden] = useState(false);
+
   // Load initial settings and lists
   useEffect(() => {
     const initData = async () => {
@@ -137,6 +142,8 @@ export default function App() {
   // Fetch file list with database metadata
   const loadDirectory = async (path: string) => {
     try {
+      // Index this directory itself so 'move' can find it later
+      invoke("index_path", { path }).catch(() => {});
       const rawEntries = await invoke<RustFileEntry[]>("list_dir", { path });
       const entriesWithMeta = await Promise.all(
         rawEntries.map(async (entry) => {
@@ -652,12 +659,77 @@ export default function App() {
     const trimmed = cmd.trim();
     if (!trimmed) return;
 
+    // --- Pending numbered choice (from move command) ---
+    if (pendingChoices) {
+      addLine(`> ${trimmed}`, "cmd");
+      const num = parseInt(trimmed);
+      if (!isNaN(num) && num >= 1 && num <= pendingChoices.length) {
+        const choice = pendingChoices[num - 1];
+        setPendingChoices(null);
+        addLine(choice.path, "info");
+        await navigateTo(choice.path);
+      } else {
+        setPendingChoices(null);
+        addLine("Selection cancelled.", "info");
+      }
+      return;
+    }
+
     // Push to history
     setCmdHistory((prev) => [...prev, trimmed]);
     setCmdHistoryIdx(-1);
     addLine(`> ${trimmed}`, "cmd");
 
     // --- Custom commands ---
+
+    // envim — open LazyVim in current directory
+    if (trimmed === "envim") {
+      try {
+        await invoke("open_in_lazyvim", { path: currentPath || "C:\\" });
+        addLine(`Opening nvim in ${currentPath || "C:\\"}`, "info");
+      } catch (e) {
+        addLine(`envim: ${e}`, "err");
+      }
+      return;
+    }
+
+    // move restrict hidden / move unrestrict hidden
+    if (/^move\s+restrict\s+hidden$/i.test(trimmed)) {
+      setMoveRestrictHidden(true);
+      addLine("move: hidden folders will be excluded from results.", "info");
+      return;
+    }
+    if (/^move\s+unrestrict\s+hidden$/i.test(trimmed)) {
+      setMoveRestrictHidden(false);
+      addLine("move: hidden folders are now included in results.", "info");
+      return;
+    }
+
+    // move <name> — DB-only fuzzy search (normalized: strip punctuation/spaces)
+    const moveMatch = trimmed.match(/^move\s+(.+)$/i);
+    if (moveMatch) {
+      const name = moveMatch[1].trim();
+      addLine(`Searching for "${name}"${moveRestrictHidden ? " (hidden excluded)" : ""}...`, "info");
+
+      let results = await invoke<string[]>("find_dirs_by_name", { name }).catch(() => [] as string[]);
+
+      // Filter out hidden folders if restriction is active
+      if (moveRestrictHidden) {
+        results = results.filter((p) => !hiddenPaths.has(p));
+      }
+
+      if (results.length === 0) {
+        addLine(`No indexed folder matches "${name}". Navigate there once to index it.`, "err");
+      } else if (results.length === 1) {
+        addLine(results[0], "info");
+        await navigateTo(results[0]);
+      } else {
+        addLine(`${results.length} matches — type a number to pick:`, "info");
+        results.forEach((p, i) => addLine(`  ${i + 1}.  ${p}`, "out"));
+        setPendingChoices(results.map((p) => ({ label: p, path: p })));
+      }
+      return;
+    }
 
     // cd <path> — navigate graphically; PowerShell resolves the path so .., ~, relative all work
     if (trimmed === "cd" || trimmed.match(/^cd\s+/i)) {
@@ -768,15 +840,28 @@ export default function App() {
       }
       return;
     }
+    if (trimmed === "list") {
+      const paths = await invoke<string[]>("list_indexed_paths").catch(() => [] as string[]);
+      if (paths.length === 0) {
+        addLine("Nothing indexed yet. Navigate some folders first.", "info");
+      } else {
+        addLine(`${paths.length} indexed paths:`, "info");
+        paths.forEach((p) => addLine(`  ${p}`, "out"));
+      }
+      return;
+    }
     if (trimmed === "help") {
       addLine("Custom commands:", "info");
-      addLine("  hide <name>       — hide item by name in current dir", "info");
-      addLine("  unhide <name>     — unhide item by name in current dir", "info");
-      addLine("  unhide all        — unhide all items in current dir", "info");
+      addLine("  move <name>       — find folder anywhere, navigate to it", "info");
+      addLine("  cd <path>         — navigate (supports .., ~, relative)", "info");
+      addLine("  envim             — open LazyVim in current dir", "info");
+      addLine("  list              — print all indexed paths", "info");
+      addLine("  hide <name>       — hide item in current dir", "info");
+      addLine("  unhide <name>     — unhide item in current dir", "info");
+      addLine("  unhide all        — unhide all in current dir", "info");
       addLine("  unhide            — unhide everything globally", "info");
-      addLine("  hidden?           — list all hidden paths", "info");
+      addLine("  hidden?           — list hidden items here", "info");
       addLine("  clear             — clear terminal", "info");
-      addLine("  help              — show this", "info");
       addLine("Everything else runs in PowerShell.", "info");
       return;
     }
@@ -904,7 +989,11 @@ export default function App() {
 
           {/* Input row */}
           <div className="flex items-center gap-2 px-3.5 py-2 border-t border-[#1a1a1a] bg-[#0a0a0a] shrink-0">
-            <span className="text-[#5dcaa5] text-[13px] font-mono shrink-0">›</span>
+            <span className={`text-[13px] font-mono shrink-0 ${
+              pendingChoices ? "text-[#ef9f27]" : "text-[#5dcaa5]"
+            }`}>
+              {pendingChoices ? "#" : "›"}
+            </span>
             <input
               ref={terminalInputRef}
               value={terminalInput}

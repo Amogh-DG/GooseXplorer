@@ -130,6 +130,67 @@ fn run_shell_command(command: String, cwd: String) -> Result<String, String> {
     }
 }
 
+#[tauri::command]
+fn find_dirs_by_name(
+    state: tauri::State<'_, DbState>,
+    name: String,
+) -> Result<Vec<String>, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    // Normalize: strip non-alphanumeric, lowercase
+    // "spiderman" -> matches "spider-man miles morales" -> "spidermanmilesmorales"
+    let norm_query: String = name
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect::<String>()
+        .to_lowercase();
+    let mut stmt = conn
+        .prepare("SELECT DISTINCT path FROM files")
+        .map_err(|e| e.to_string())?;
+    let paths: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .filter(|p| {
+            let fname = std::path::Path::new(p)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            let norm_fname: String = fname
+                .chars()
+                .filter(|c| c.is_alphanumeric())
+                .collect::<String>()
+                .to_lowercase();
+            norm_fname.contains(&norm_query) && std::path::Path::new(p).is_dir()
+        })
+        .collect();
+    Ok(paths)
+}
+
+#[tauri::command]
+fn index_path(state: tauri::State<'_, DbState>, path: String) -> Result<(), String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT OR IGNORE INTO files (path, description, tags) VALUES (?1, '', '')",
+        [&path],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn list_indexed_paths(state: tauri::State<'_, DbState>) -> Result<Vec<String>, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("SELECT DISTINCT path FROM files ORDER BY path")
+        .map_err(|e| e.to_string())?;
+    let paths: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(paths)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conn = db::init_db()?;
     let db_state = DbState {
@@ -153,6 +214,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             open_in_powershell,
             open_in_lazyvim,
             run_shell_command,
+            find_dirs_by_name,
+            index_path,
+            list_indexed_paths,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
