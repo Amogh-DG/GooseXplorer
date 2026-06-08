@@ -109,6 +109,27 @@ fn open_in_lazyvim(path: String) {
     }
 }
 
+#[tauri::command]
+fn run_shell_command(command: String, cwd: String) -> Result<String, String> {
+    let work_dir = if std::path::Path::new(&cwd).is_dir() {
+        cwd.clone()
+    } else {
+        String::from("C:\\")
+    };
+    let output = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &command])
+        .current_dir(&work_dir)
+        .output()
+        .map_err(|e| e.to_string())?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    if output.status.success() {
+        Ok(stdout)
+    } else {
+        Err(if stderr.trim().is_empty() { stdout } else { stderr })
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conn = db::init_db()?;
     let db_state = DbState {
@@ -131,6 +152,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             path_is_dir,
             open_in_powershell,
             open_in_lazyvim,
+            run_shell_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

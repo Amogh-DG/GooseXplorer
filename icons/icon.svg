@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#0d0d1a"/>
+    </linearGradient>
+    <linearGradient id="folder" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ef9f27"/>
+      <stop offset="100%" style="stop-color:#c97d10"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#5dcaa5"/>
+      <stop offset="100%" style="stop-color:#3a9e7e"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded rect -->
+  <rect width="512" height="512" rx="96" ry="96" fill="url(#bg)"/>
+
+  <!-- Folder tab -->
+  <path d="M96 192 Q96 168 120 168 L224 168 Q240 168 248 180 L264 204 L392 204 Q416 204 416 228 L416 376 Q416 400 392 400 L120 400 Q96 400 96 376 Z" fill="url(#folder)" opacity="0.15"/>
+
+  <!-- Folder body -->
+  <path d="M104 216 Q104 196 124 196 L248 196 Q256 196 260 204 L276 224 L392 224 Q408 224 408 240 L408 372 Q408 388 392 388 L124 388 Q104 388 104 372 Z" fill="url(#folder)"/>
+
+  <!-- FL letters -->
+  <text x="210" y="340" font-family="'SF Mono', 'Fira Mono', 'Consolas', monospace" font-size="112" font-weight="700" fill="#1a1a2e" letter-spacing="-4" opacity="0.85">FL</text>
+
+  <!-- Small accent line -->
+  <rect x="164" y="356" width="80" height="8" rx="4" fill="url(#accent)" opacity="0.9"/>
+</svg>

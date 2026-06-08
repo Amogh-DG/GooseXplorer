@@ -74,9 +74,23 @@ export default function App() {
   // Search
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Hidden paths
+  const [hiddenPaths, setHiddenPaths] = useState<Set<string>>(new Set());
+  const [showHidden, setShowHidden] = useState(false);
+
   // Context menu
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenuFile, setContextMenuFile] = useState<FileEntryWithMeta | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  // Mini terminal
+  const [showTerminal, setShowTerminal] = useState(false);
+  const [terminalInput, setTerminalInput] = useState("");
+  const [terminalLines, setTerminalLines] = useState<{ text: string; type: "cmd" | "out" | "err" | "info" }[]>([]);
+  const [, setCmdHistory] = useState<string[]>([]);
+  const [cmdHistoryIdx, setCmdHistoryIdx] = useState(-1);
+  const terminalOutputRef = useRef<HTMLDivElement>(null);
+  const terminalInputRef = useRef<HTMLInputElement>(null);
 
   // Load initial settings and lists
   useEffect(() => {
@@ -103,6 +117,15 @@ export default function App() {
         // Fetch user setting or fallback
         const usr = await invoke<string>("get_setting", { key: "username" });
         if (usr) setUsername(usr);
+
+        // Load hidden paths
+        const hiddenSetting = await invoke<string>("get_setting", { key: "hidden_paths" });
+        if (hiddenSetting) {
+          try {
+            const arr: string[] = JSON.parse(hiddenSetting);
+            setHiddenPaths(new Set(arr));
+          } catch { /* ignore */ }
+        }
       } catch (e) {
         console.error("Initialization failed:", e);
       }
@@ -130,7 +153,7 @@ export default function App() {
         })
       );
       setAllLoadedFiles(entriesWithMeta);
-      setFiles(filterFiles(entriesWithMeta, activeTagFilter));
+      setFiles(filterFiles(entriesWithMeta, activeTagFilter, hiddenPaths, showHidden));
     } catch (e) {
       console.error(`Failed to load directory: ${path}`, e);
     }
@@ -162,22 +185,23 @@ export default function App() {
         })
       );
       setAllLoadedFiles(entriesWithMeta);
-      setFiles(filterFiles(entriesWithMeta, activeTagFilter));
+      setFiles(filterFiles(entriesWithMeta, activeTagFilter, hiddenPaths, showHidden));
     } catch (e) {
       console.error(`Search failed: ${query}`, e);
     }
   };
 
-  // Helper to filter files locally by tag
-  const filterFiles = (list: FileEntryWithMeta[], tag: string) => {
-    if (!tag) return list;
-    return list.filter((f) => f.tags.some((t) => t.toLowerCase() === tag.toLowerCase()));
+  // Helper to filter files locally by tag (and hidden)
+  const filterFiles = (list: FileEntryWithMeta[], tag: string, hidden: Set<string>, revealHidden: boolean) => {
+    let result = revealHidden ? list : list.filter((f) => !hidden.has(f.path));
+    if (tag) result = result.filter((f) => f.tags.some((t) => t.toLowerCase() === tag.toLowerCase()));
+    return result;
   };
 
-  // Re-apply filter when activeTagFilter changes
+  // Re-apply filter when activeTagFilter / hiddenPaths / showHidden changes
   useEffect(() => {
-    setFiles(filterFiles(allLoadedFiles, activeTagFilter));
-  }, [activeTagFilter, allLoadedFiles]);
+    setFiles(filterFiles(allLoadedFiles, activeTagFilter, hiddenPaths, showHidden));
+  }, [activeTagFilter, allLoadedFiles, hiddenPaths, showHidden]);
 
   // Navigate to path
   const navigateTo = async (path: string, isSearch: boolean = false) => {
@@ -265,6 +289,7 @@ export default function App() {
     handleForward,
     showDetail,
     setShowDetail,
+    setShowTerminal,
   });
 
   useEffect(() => {
@@ -277,6 +302,7 @@ export default function App() {
       handleForward,
       showDetail,
       setShowDetail,
+      setShowTerminal,
     };
   });
 
@@ -295,6 +321,12 @@ export default function App() {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Shift + ` opens/closes the mini terminal
+      if (e.code === "Backquote" && e.shiftKey) {
+        e.preventDefault();
+        navigationRef.current.setShowTerminal((prev: boolean) => !prev);
+        return;
+      }
       if (e.key === "q" || e.key === "Q") {
         const activeEl = document.activeElement;
         if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA")) {
@@ -542,13 +574,18 @@ export default function App() {
   const untaggedCount = files.filter((f) => f.is_untagged).length;
 
   // Context menu handlers
-  const handleContextMenu = (e: React.MouseEvent) => {
-    if (showHomepage || !currentPath) return; // no menu on homepage or search
+  const handleContextMenu = (e: React.MouseEvent, file?: FileEntryWithMeta) => {
+    if (showHomepage || !currentPath) return;
     e.preventDefault();
+    e.stopPropagation();
+    setContextMenuFile(file ?? null);
     setContextMenu({ x: e.clientX, y: e.clientY });
   };
 
-  const closeContextMenu = () => setContextMenu(null);
+  const closeContextMenu = () => {
+    setContextMenu(null);
+    setContextMenuFile(null);
+  };
 
   const handleOpenPowershell = async () => {
     closeContextMenu();
@@ -568,6 +605,173 @@ export default function App() {
     }
   };
 
+  const saveHiddenPaths = async (updated: Set<string>) => {
+    setHiddenPaths(updated);
+    try {
+      await invoke("set_setting", { key: "hidden_paths", value: JSON.stringify([...updated]) });
+    } catch (e) {
+      console.error("Failed to save hidden paths:", e);
+    }
+  };
+
+  const handleHide = async () => {
+    if (!contextMenuFile) return;
+    closeContextMenu();
+    const updated = new Set(hiddenPaths);
+    updated.add(contextMenuFile.path);
+    await saveHiddenPaths(updated);
+  };
+
+  const handleUnhide = async () => {
+    if (!contextMenuFile) return;
+    closeContextMenu();
+    const updated = new Set(hiddenPaths);
+    updated.delete(contextMenuFile.path);
+    await saveHiddenPaths(updated);
+  };
+
+  // Auto-scroll terminal output to bottom when new lines arrive
+  useEffect(() => {
+    if (terminalOutputRef.current) {
+      terminalOutputRef.current.scrollTop = terminalOutputRef.current.scrollHeight;
+    }
+  }, [terminalLines]);
+
+  // Focus terminal input when it opens
+  useEffect(() => {
+    if (showTerminal) {
+      setTimeout(() => terminalInputRef.current?.focus(), 50);
+    }
+  }, [showTerminal]);
+
+  const addLine = (text: string, type: "cmd" | "out" | "err" | "info") => {
+    setTerminalLines((prev) => [...prev, { text, type }]);
+  };
+
+  const runTerminalCommand = async (cmd: string) => {
+    const trimmed = cmd.trim();
+    if (!trimmed) return;
+
+    // Push to history
+    setCmdHistory((prev) => [...prev, trimmed]);
+    setCmdHistoryIdx(-1);
+    addLine(`> ${trimmed}`, "cmd");
+
+    // --- Custom commands ---
+
+    // unhide all — only unhides items in the current directory
+    if (trimmed === "unhide all") {
+      const prefix = currentPath ? currentPath.replace(/[/\\]+$/, "") : "";
+      const updated = new Set([...hiddenPaths].filter((p) => {
+        const parent = p.replace(/[/\\][^/\\]+$/, "");
+        return parent !== prefix;
+      }));
+      setHiddenPaths(updated);
+      setShowHidden(false);
+      try {
+        await invoke("set_setting", { key: "hidden_paths", value: JSON.stringify([...updated]) });
+      } catch { /* ignore */ }
+      addLine(`Unhid all items in ${prefix || "current directory"}.`, "info");
+      return;
+    }
+
+    // unhide <name> — unhide specific item by name in current dir
+    const unhideMatch = trimmed.match(/^unhide\s+(.+)$/i);
+    if (unhideMatch) {
+      const name = unhideMatch[1].trim();
+      const target = allLoadedFiles.find((f) => f.name.toLowerCase() === name.toLowerCase());
+      if (target) {
+        const updated = new Set(hiddenPaths);
+        updated.delete(target.path);
+        setHiddenPaths(updated);
+        try {
+          await invoke("set_setting", { key: "hidden_paths", value: JSON.stringify([...updated]) });
+        } catch { /* ignore */ }
+        addLine(`Unhid "${target.name}".`, "info");
+      } else {
+        addLine(`Not found in current directory: "${name}"`, "err");
+      }
+      return;
+    }
+
+    // hide <name> — hide specific item by name in current dir
+    const hideMatch = trimmed.match(/^hide\s+(.+)$/i);
+    if (hideMatch) {
+      const name = hideMatch[1].trim();
+      const target = allLoadedFiles.find((f) => f.name.toLowerCase() === name.toLowerCase());
+      if (target) {
+        const updated = new Set(hiddenPaths);
+        updated.add(target.path);
+        setHiddenPaths(updated);
+        try {
+          await invoke("set_setting", { key: "hidden_paths", value: JSON.stringify([...updated]) });
+        } catch { /* ignore */ }
+        addLine(`Hid "${target.name}".`, "info");
+      } else {
+        addLine(`Not found in current directory: "${name}"`, "err");
+      }
+      return;
+    }
+
+    // unhide (no args) — same as unhide all
+    if (trimmed === "unhide") {
+      setHiddenPaths(new Set());
+      setShowHidden(false);
+      try {
+        await invoke("set_setting", { key: "hidden_paths", value: "[]" });
+      } catch { /* ignore */ }
+      addLine("All hidden items are now visible (globally).", "info");
+      return;
+    }
+
+    if (trimmed === "clear") {
+      setTerminalLines([]);
+      return;
+    }
+    if (trimmed === "hidden?") {
+      const prefix = currentPath ? currentPath.replace(/[/\\]+$/, "") : "";
+      const localHidden = [...hiddenPaths].filter((p) => {
+        const parent = p.replace(/[/\\][^/\\]+$/, "");
+        return parent === prefix;
+      });
+      if (localHidden.length === 0) {
+        addLine("No hidden items in this directory.", "info");
+      } else {
+        addLine(`${localHidden.length} hidden in current directory:`, "info");
+        localHidden.forEach((p) => addLine(`  ${p.split(/[/\\]/).pop()}`, "out"));
+      }
+      return;
+    }
+    if (trimmed === "help") {
+      addLine("Custom commands:", "info");
+      addLine("  hide <name>       — hide item by name in current dir", "info");
+      addLine("  unhide <name>     — unhide item by name in current dir", "info");
+      addLine("  unhide all        — unhide all items in current dir", "info");
+      addLine("  unhide            — unhide everything globally", "info");
+      addLine("  hidden?           — list all hidden paths", "info");
+      addLine("  clear             — clear terminal", "info");
+      addLine("  help              — show this", "info");
+      addLine("Everything else runs in PowerShell.", "info");
+      return;
+    }
+
+    // --- Run in PowerShell ---
+    const cwd = currentPath.startsWith("search results") || !currentPath ? "C:\\" : currentPath;
+    try {
+      const result = await invoke<string>("run_shell_command", { command: trimmed, cwd });
+      const lines = result.trim().split("\n").filter(Boolean);
+      lines.forEach((l) => addLine(l.trimEnd(), "out"));
+      if (lines.length === 0) addLine("(no output)", "info");
+    } catch (e) {
+      String(e).split("\n").filter(Boolean).forEach((l) => addLine(l.trimEnd(), "err"));
+    } finally {
+      // Refresh the file list so any fs changes show up immediately
+      if (currentPath && !currentPath.startsWith("search results") && !showHomepage) {
+        await loadDirectory(currentPath);
+      }
+    }
+  };
+
   return (
     <div
       className="h-screen w-screen flex flex-col bg-darkBg text-white font-sans overflow-hidden select-none"
@@ -578,26 +782,141 @@ export default function App() {
       {contextMenu && (
         <div
           ref={contextMenuRef}
-          className="fixed z-50 bg-[#1e1e1e] border border-[#333333] rounded-lg shadow-2xl py-1 min-w-[180px]"
+          className="fixed z-50 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-2xl py-1 min-w-[190px]"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Directory actions — always shown */}
           <button
             onClick={handleOpenPowershell}
-            className="w-full text-left px-4 py-2 text-[12px] text-[#cccccc] hover:bg-[#2a2a2a] hover:text-white flex items-center gap-2.5 transition duration-100"
+            className="w-full text-left px-4 py-2 text-[12px] text-[#cccccc] hover:bg-[#272727] hover:text-white flex items-center gap-2.5 transition duration-100"
           >
             <span className="text-[#5dcaa5] font-bold text-[13px]">›_</span>
             Open in PowerShell
           </button>
           <button
             onClick={handleOpenLazyvim}
-            className="w-full text-left px-4 py-2 text-[12px] text-[#cccccc] hover:bg-[#2a2a2a] hover:text-white flex items-center gap-2.5 transition duration-100"
+            className="w-full text-left px-4 py-2 text-[12px] text-[#cccccc] hover:bg-[#272727] hover:text-white flex items-center gap-2.5 transition duration-100"
           >
             <span className="text-[#57a6f0] font-bold text-[13px]">ν</span>
             Open in LazyVim
           </button>
+
+          {/* File/folder-specific actions */}
+          {contextMenuFile && (
+            <>
+              <div className="my-1 border-t border-[#2a2a2a]" />
+              {hiddenPaths.has(contextMenuFile.path) ? (
+                <button
+                  onClick={handleUnhide}
+                  className="w-full text-left px-4 py-2 text-[12px] text-[#cccccc] hover:bg-[#272727] hover:text-white flex items-center gap-2.5 transition duration-100"
+                >
+                  <span className="text-[#888888] text-[13px]">◎</span>
+                  Unhide
+                </button>
+              ) : (
+                <button
+                  onClick={handleHide}
+                  className="w-full text-left px-4 py-2 text-[12px] text-[#aaaaaa] hover:bg-[#272727] hover:text-red-400 flex items-center gap-2.5 transition duration-100"
+                >
+                  <span className="text-[13px]">⊘</span>
+                  Hide
+                </button>
+              )}
+            </>
+          )}
         </div>
       )}
+
+      {/* Mini Terminal — Shift+` to toggle */}
+      {showTerminal && (
+        <div
+          className="fixed bottom-4 right-4 z-50 w-[440px] bg-[#0d0d0d] border border-[#222222] rounded-xl shadow-2xl flex flex-col overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-3.5 py-2 bg-[#111111] border-b border-[#1e1e1e] shrink-0">
+            <span className="text-[10px] text-[#3a3a3a] font-bold tracking-[0.15em] font-mono uppercase">terminal</span>
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] text-[#444444] font-mono truncate max-w-[260px]">
+                {currentPath && !currentPath.startsWith("search") ? currentPath : "~"}
+              </span>
+              <button
+                onClick={() => setShowTerminal(false)}
+                className="text-[#333333] hover:text-[#777777] text-base leading-none transition"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+
+          {/* Output */}
+          <div
+            ref={terminalOutputRef}
+            className="h-[190px] overflow-y-auto px-3.5 py-2.5 flex flex-col gap-[2px] font-mono"
+          >
+            {terminalLines.length === 0 && (
+              <span className="text-[11px] text-[#3a3a3a] font-mono">
+                {currentPath && !currentPath.startsWith("search") ? currentPath : "~"}
+              </span>
+            )}
+            {terminalLines.map((line, i) => (
+              <div
+                key={i}
+                className={`text-[11px] leading-relaxed whitespace-pre-wrap break-all ${
+                  line.type === "cmd" ? "text-[#5dcaa5]" :
+                  line.type === "err" ? "text-[#e24b4a]" :
+                  line.type === "info" ? "text-[#57a6f0]" :
+                  "text-[#d4d4d4]"
+                }`}
+              >
+                {line.text}
+              </div>
+            ))}
+          </div>
+
+          {/* Input row */}
+          <div className="flex items-center gap-2 px-3.5 py-2 border-t border-[#1a1a1a] bg-[#0a0a0a] shrink-0">
+            <span className="text-[#5dcaa5] text-[13px] font-mono shrink-0">›</span>
+            <input
+              ref={terminalInputRef}
+              value={terminalInput}
+              onChange={(e) => {
+                setTerminalInput(e.target.value);
+                setCmdHistoryIdx(-1);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  runTerminalCommand(terminalInput);
+                  setTerminalInput("");
+                } else if (e.key === "Escape") {
+                  setShowTerminal(false);
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setCmdHistory((hist) => {
+                    const nextIdx = cmdHistoryIdx < hist.length - 1 ? cmdHistoryIdx + 1 : hist.length - 1;
+                    setCmdHistoryIdx(nextIdx);
+                    setTerminalInput(hist[hist.length - 1 - nextIdx] ?? "");
+                    return hist;
+                  });
+                } else if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setCmdHistory((hist) => {
+                    const nextIdx = cmdHistoryIdx > 0 ? cmdHistoryIdx - 1 : -1;
+                    setCmdHistoryIdx(nextIdx);
+                    setTerminalInput(nextIdx === -1 ? "" : hist[hist.length - 1 - nextIdx] ?? "");
+                    return hist;
+                  });
+                }
+              }}
+              placeholder="command..."
+              className="flex-1 bg-transparent text-[#cccccc] text-[12px] font-mono outline-none placeholder-[#252525]"
+            />
+          </div>
+        </div>
+      )}
+
       {/* 1. Draggable Titlebar (32px) */}
       <header
         data-tauri-drag-region
@@ -836,7 +1155,7 @@ export default function App() {
                 </button>
 
                 {/* Path display */}
-                <div className="text-[12px] text-[#888888] truncate select-text">
+                <div className="text-[12px] text-[#888888] truncate select-text flex-1">
                   {currentPath}
                 </div>
 
@@ -858,16 +1177,18 @@ export default function App() {
                   <div className="flex flex-col">
                     {files.map((file) => {
                       const isSelected = selectedFile?.path === file.path;
+                      const isHidden = hiddenPaths.has(file.path);
                       return (
                         <div
                           key={file.path}
                           onClick={() => handleFileClick(file)}
                           onDoubleClick={() => handleFileDoubleClick(file)}
+                          onContextMenu={(e) => handleContextMenu(e, file)}
                           className={`h-[52px] flex items-center px-4 justify-between transition cursor-pointer select-none border-b border-neutral-900 ${
                             isSelected
                               ? "bg-[#252525]"
                               : "hover:bg-[#222222]"
-                          }`}
+                          } ${isHidden ? "opacity-30" : ""}`}
                         >
                           {/* Left: Icon and Name + tags + description */}
                           <div className="flex items-center gap-3 overflow-hidden">
