@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "identifier": "com.filelester.app",
   "build": {
-    "frontendDist": "../ui-web/dist",
+    "frontendDist": "./ui-web/dist",
     "devUrl": "http://localhost:5173"
   },
   "app": {

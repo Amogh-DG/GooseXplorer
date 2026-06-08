@@ -74,6 +74,10 @@ export default function App() {
   // Search
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Context menu
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+
   // Load initial settings and lists
   useEffect(() => {
     const initData = async () => {
@@ -142,11 +146,12 @@ export default function App() {
           const tags = res.tags
             ? res.tags.split(",").map((t) => t.trim()).filter(Boolean)
             : [];
-          // Check if it's a dir (mocked for search results, or we can assume false)
+          // Ask Rust whether this path is a directory so double-click navigates correctly
+          const is_dir = await invoke<boolean>("path_is_dir", { path: res.path }).catch(() => false);
           return {
             name,
             path: res.path,
-            is_dir: false,
+            is_dir,
             size: 0,
             _modified: "",
             _extension: name.split(".").pop() || "",
@@ -295,7 +300,10 @@ export default function App() {
         if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA")) {
           return;
         }
-        navigationRef.current.setShowDetail(false);
+        // Toggle: open panel if a file is selected, close if already open
+        navigationRef.current.setShowDetail(
+          (prev: boolean) => !prev
+        );
       }
     };
 
@@ -318,10 +326,10 @@ export default function App() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
   };
 
-  // Handle click on file entry
+  // Handle click on file entry — selects item but does NOT open panel (press Q to open)
   const handleFileClick = async (file: FileEntryWithMeta) => {
     setSelectedFile(file);
-    setShowDetail(true);
+    setShowDetail(false); // panel stays closed; Q will open it
     setDescriptionInput(file.description);
     setCurrentTagsList(file.tags);
 
@@ -533,8 +541,63 @@ export default function App() {
   const totalCount = files.length;
   const untaggedCount = files.filter((f) => f.is_untagged).length;
 
+  // Context menu handlers
+  const handleContextMenu = (e: React.MouseEvent) => {
+    if (showHomepage || !currentPath) return; // no menu on homepage or search
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  const closeContextMenu = () => setContextMenu(null);
+
+  const handleOpenPowershell = async () => {
+    closeContextMenu();
+    try {
+      await invoke("open_in_powershell", { path: currentPath });
+    } catch (e) {
+      console.error("Failed to open PowerShell:", e);
+    }
+  };
+
+  const handleOpenLazyvim = async () => {
+    closeContextMenu();
+    try {
+      await invoke("open_in_lazyvim", { path: currentPath });
+    } catch (e) {
+      console.error("Failed to open LazyVim:", e);
+    }
+  };
+
   return (
-    <div className="h-screen w-screen flex flex-col bg-darkBg text-white font-sans overflow-hidden select-none">
+    <div
+      className="h-screen w-screen flex flex-col bg-darkBg text-white font-sans overflow-hidden select-none"
+      onClick={closeContextMenu}
+      onContextMenu={handleContextMenu}
+    >
+      {/* Context Menu */}
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="fixed z-50 bg-[#1e1e1e] border border-[#333333] rounded-lg shadow-2xl py-1 min-w-[180px]"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={handleOpenPowershell}
+            className="w-full text-left px-4 py-2 text-[12px] text-[#cccccc] hover:bg-[#2a2a2a] hover:text-white flex items-center gap-2.5 transition duration-100"
+          >
+            <span className="text-[#5dcaa5] font-bold text-[13px]">›_</span>
+            Open in PowerShell
+          </button>
+          <button
+            onClick={handleOpenLazyvim}
+            className="w-full text-left px-4 py-2 text-[12px] text-[#cccccc] hover:bg-[#2a2a2a] hover:text-white flex items-center gap-2.5 transition duration-100"
+          >
+            <span className="text-[#57a6f0] font-bold text-[13px]">ν</span>
+            Open in LazyVim
+          </button>
+        </div>
+      )}
       {/* 1. Draggable Titlebar (32px) */}
       <header
         data-tauri-drag-region
@@ -734,9 +797,10 @@ export default function App() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && searchQuery.trim()) {
                       navigateTo(searchQuery.trim(), true);
+                      setSearchQuery("");
                     }
                   }}
-                  className="flex-1 bg-transparent text-[#cccccc] text-sm outline-none border-none placeholder-[#555555]"
+                  className="flex-1 bg-transparent text-[#cccccc] text-sm text-center outline-none border-none placeholder-[#555555]"
                 />
               </div>
             </div>
@@ -881,13 +945,15 @@ export default function App() {
           )}
         </main>
 
-        {/* 4. Right Detail Panel (240px) */}
-        <aside className="w-[240px] bg-darkPanel border-l border-borderDark flex flex-col p-4 gap-4 overflow-y-auto shrink-0 select-none">
-          {!showDetail || !selectedFile ? (
-            <div className="flex-1 flex items-center justify-center text-gray-500 text-[12px] italic">
-              No file selected
-            </div>
-          ) : (
+        {/* 4. Right Detail Panel — only visible when a file is selected */}
+        <aside
+          className={`bg-darkPanel flex flex-col overflow-y-auto shrink-0 select-none transition-all duration-200 ${
+            showDetail && selectedFile
+              ? "w-[240px] border-l border-borderDark p-4 gap-4"
+              : "w-0 border-0 p-0"
+          }`}
+        >
+          {showDetail && selectedFile && (
             <div className="flex flex-col gap-4">
               <div>
                 <h3 className="text-[10px] text-[#555555] font-bold tracking-wider mb-2">

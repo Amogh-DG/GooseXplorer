@@ -80,6 +80,35 @@ fn open_file(path: String) {
     }
 }
 
+#[tauri::command]
+fn path_is_dir(path: String) -> bool {
+    std::path::Path::new(&path).is_dir()
+}
+
+#[tauri::command]
+fn open_in_powershell(path: String) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("powershell")
+            .args(["-NoExit", "-Command", &format!("Set-Location '{}'", path)])
+            .creation_flags(0x00000010) // CREATE_NEW_CONSOLE
+            .spawn();
+    }
+}
+
+#[tauri::command]
+fn open_in_lazyvim(path: String) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("powershell")
+            .args(["-NoExit", "-Command", &format!("nvim '{}'", path)])
+            .creation_flags(0x00000010) // CREATE_NEW_CONSOLE
+            .spawn();
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conn = db::init_db()?;
     let db_state = DbState {
@@ -99,6 +128,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             get_setting,
             set_setting,
             open_file,
+            path_is_dir,
+            open_in_powershell,
+            open_in_lazyvim,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

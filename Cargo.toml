@@ -14,4 +14,4 @@ dirs = "5"
 chrono = "0.4"
 
 [build-dependencies]
-tauri-build = { version = "2" }
+tauri-build = { version = "2", features = [] }
