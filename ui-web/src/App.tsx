@@ -42,7 +42,7 @@ interface SearchResult {
 const appWindow = getCurrentWindow();
 
 export default function App() {
-  const [appName, setAppName] = useState("FileLester");
+  const [appName, setAppName] = useState("Goosexplorer");
   const [username, setUsername] = useState("amogh");
   const [showHomepage, setShowHomepage] = useState(true);
   const [currentPath, setCurrentPath] = useState("");
@@ -131,6 +131,10 @@ export default function App() {
             setHiddenPaths(new Set(arr));
           } catch { /* ignore */ }
         }
+
+        // Load move restrict hidden
+        const moveRestrict = await invoke<string>("get_setting", { key: "move_restrict_hidden" });
+        if (moveRestrict === "true") setMoveRestrictHidden(true);
       } catch (e) {
         console.error("Initialization failed:", e);
       }
@@ -169,14 +173,19 @@ export default function App() {
   // Perform full-text search
   const performSearch = async (query: string) => {
     try {
-      const results = await invoke<SearchResult[]>("search_files", { query });
-      const entriesWithMeta = await Promise.all(
-        results.map(async (res) => {
+      // 1. FTS search — matches descriptions and tags
+      const ftsResults = await invoke<SearchResult[]>("search_files", { query }).catch(() => [] as SearchResult[]);
+
+      // 2. Fuzzy path-name search — finds indexed folders by name (same normalization as move)
+      const pathResults = await invoke<string[]>("find_dirs_by_name", { name: query }).catch(() => [] as string[]);
+
+      // Build FTS entries
+      const ftsEntries = await Promise.all(
+        ftsResults.map(async (res) => {
           const name = res.path.split(/[/\\]/).pop() || res.path;
           const tags = res.tags
             ? res.tags.split(",").map((t) => t.trim()).filter(Boolean)
             : [];
-          // Ask Rust whether this path is a directory so double-click navigates correctly
           const is_dir = await invoke<boolean>("path_is_dir", { path: res.path }).catch(() => false);
           return {
             name,
@@ -191,8 +200,30 @@ export default function App() {
           };
         })
       );
-      setAllLoadedFiles(entriesWithMeta);
-      setFiles(filterFiles(entriesWithMeta, activeTagFilter, hiddenPaths, showHidden));
+
+      // Build path-name entries (folders only, no description/tags unless already in FTS)
+      const ftsPaths = new Set(ftsEntries.map((e) => e.path.toLowerCase()));
+      const pathEntries = pathResults
+        .filter((p) => !ftsPaths.has(p.toLowerCase()))
+        .map((p) => {
+          const name = p.split(/[/\\]/).pop() || p;
+          return {
+            name,
+            path: p,
+            is_dir: true,
+            size: 0,
+            _modified: "",
+            _extension: "",
+            description: "",
+            tags: [] as string[],
+            is_untagged: true,
+          };
+        });
+
+      // FTS results first (they have metadata), then path-name matches
+      const merged = [...ftsEntries, ...pathEntries];
+      setAllLoadedFiles(merged);
+      setFiles(filterFiles(merged, activeTagFilter, hiddenPaths, showHidden));
     } catch (e) {
       console.error(`Search failed: ${query}`, e);
     }
@@ -696,11 +727,13 @@ export default function App() {
     // move restrict hidden / move unrestrict hidden
     if (/^move\s+restrict\s+hidden$/i.test(trimmed)) {
       setMoveRestrictHidden(true);
+      invoke("set_setting", { key: "move_restrict_hidden", value: "true" }).catch(() => {});
       addLine("move: hidden folders will be excluded from results.", "info");
       return;
     }
     if (/^move\s+unrestrict\s+hidden$/i.test(trimmed)) {
       setMoveRestrictHidden(false);
+      invoke("set_setting", { key: "move_restrict_hidden", value: "false" }).catch(() => {});
       addLine("move: hidden folders are now included in results.", "info");
       return;
     }

@@ -1,11 +1,11 @@
 use rusqlite::{params, Connection};
 use std::fs;
 
-/// Initializes the SQLite database at `~/.mofilelester/data.db`.
+/// Initializes the SQLite database at `~/.moGoosexplorer/data.db`.
 /// Creates the files and settings tables, and populates default settings if they do not exist.
 pub fn init_db() -> Result<Connection, Box<dyn std::error::Error>> {
     let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    let db_dir = home.join(".mofilelester");
+    let db_dir = home.join(".moGoosexplorer");
     fs::create_dir_all(&db_dir)?;
     let db_path = db_dir.join("data.db");
     
@@ -37,7 +37,7 @@ pub fn init_db() -> Result<Connection, Box<dyn std::error::Error>> {
     
     // Insert default settings
     conn.execute(
-        "INSERT OR IGNORE INTO settings (key, value) VALUES ('app_name', 'FileLester');",
+        "INSERT OR IGNORE INTO settings (key, value) VALUES ('app_name', 'Goosexplorer');",
         [],
     )?;
     conn.execute(
@@ -51,7 +51,7 @@ pub fn init_db() -> Result<Connection, Box<dyn std::error::Error>> {
     
     // Migration: Update default app name setting
     conn.execute(
-        "UPDATE settings SET value = 'FileLester' WHERE key = 'app_name';",
+        "UPDATE settings SET value = 'Goosexplorer' WHERE key = 'app_name';",
         [],
     )?;
     

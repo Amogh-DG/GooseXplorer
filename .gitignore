@@ -1,3 +1,26 @@
-target/
-ui-web/node_modules/
-ui-web/dist/
+# Rust build artifacts
+/target/
+/src-tauri/target/
+
+# Tauri generated files
+/gen/
+
+# Frontend (if ui-web has its own npm/yarn/pnpm setup)
+/ui-web/node_modules/
+/ui-web/dist/
+/ui-web/.vite/
+
+# Cargo lock — commit this, it's a binary/app
+# Cargo.lock
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Editor/IDE
+.vscode/
+.idea/
+*.iml

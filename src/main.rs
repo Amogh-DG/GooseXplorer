@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 mod autonamer;
 mod db;
 mod fs;
@@ -104,7 +106,7 @@ fn open_in_lazyvim(path: String) {
         use std::os::windows::process::CommandExt;
         let _ = std::process::Command::new("powershell")
             .args(["-NoExit", "-Command", &format!("nvim '{}'", path)])
-            .creation_flags(0x00000010) // CREATE_NEW_CONSOLE
+            .creation_flags(x00000010) // CREATE_NEW_CONSOLE
             .spawn();
     }
 }
