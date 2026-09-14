@@ -2,49 +2,6 @@
 
 GooseXplorer is a modern, high-performance, and feature-rich desktop File Explorer built on **Tauri v2**, **Rust**, **React**, and **TypeScript**. It offers advanced file tagging, fuzzy path/metadata search powered by SQLite (FTS5), shell integration, automatic filename suggestion, and a sleek, developer-friendly dark user interface.
 
-## Architecture
-
-The application is structured into two main layers communicating via Tauri's IPC bridge.
-
-```mermaid
-graph TD
-    subgraph Frontend ["Frontend (React, TypeScript, Vite, Tailwind CSS)"]
-        UI["User Interface Components"]
-        State["React State (Files, Navigation, Sidebar)"]
-        MiniTerm["Mini-Terminal Component"]
-        UI --> State
-        UI --> MiniTerm
-    end
-
-    subgraph IPC ["Tauri IPC (Inter-Process Communication)"]
-        Commands["Tauri Commands<br/>(list_dir, search_files, etc.)"]
-    end
-
-    subgraph Backend ["Backend (Rust, Tauri Core)"]
-        Main["main.rs<br/>(Command Handlers)"]
-        FS["fs.rs<br/>(File System Operations)"]
-        DB["db.rs<br/>(SQLite & FTS5)"]
-        AutoName["autonamer.rs<br/>(Naming Suggestions)"]
-        
-        Main --> FS
-        Main --> DB
-        Main --> AutoName
-    end
-
-    subgraph System ["Operating System"]
-        Disk["Local File System"]
-        SQLite[(SQLite Database<br/>~/.moGoosexplorer/data.db)]
-        Shell["System Shell<br/>(PowerShell, Neovim)"]
-    end
-
-    %% Connections
-    State <--> |Invoke Commands| Commands
-    MiniTerm <--> |Invoke Commands| Commands
-    Commands <--> Main
-    FS <--> |Read/Write| Disk
-    DB <--> |Query/Update| SQLite
-    Main <--> |Execute| Shell
-```
 
 ## Key Features
 
