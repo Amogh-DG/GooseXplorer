@@ -2,7 +2,49 @@
 
 GooseXplorer is a modern, high-performance, and feature-rich desktop File Explorer built on **Tauri v2**, **Rust**, **React**, and **TypeScript**. It offers advanced file tagging, fuzzy path/metadata search powered by SQLite (FTS5), shell integration, automatic filename suggestion, and a sleek, developer-friendly dark user interface.
 
----
+## Architecture
+
+The application is structured into two main layers communicating via Tauri's IPC bridge.
+
+```mermaid
+graph TD
+    subgraph Frontend ["Frontend (React, TypeScript, Vite, Tailwind CSS)"]
+        UI["User Interface Components"]
+        State["React State (Files, Navigation, Sidebar)"]
+        MiniTerm["Mini-Terminal Component"]
+        UI --> State
+        UI --> MiniTerm
+    end
+
+    subgraph IPC ["Tauri IPC (Inter-Process Communication)"]
+        Commands["Tauri Commands<br/>(list_dir, search_files, etc.)"]
+    end
+
+    subgraph Backend ["Backend (Rust, Tauri Core)"]
+        Main["main.rs<br/>(Command Handlers)"]
+        FS["fs.rs<br/>(File System Operations)"]
+        DB["db.rs<br/>(SQLite & FTS5)"]
+        AutoName["autonamer.rs<br/>(Naming Suggestions)"]
+        
+        Main --> FS
+        Main --> DB
+        Main --> AutoName
+    end
+
+    subgraph System ["Operating System"]
+        Disk["Local File System"]
+        SQLite[(SQLite Database<br/>~/.moGoosexplorer/data.db)]
+        Shell["System Shell<br/>(PowerShell, Neovim)"]
+    end
+
+    %% Connections
+    State <--> |Invoke Commands| Commands
+    MiniTerm <--> |Invoke Commands| Commands
+    Commands <--> Main
+    FS <--> |Read/Write| Disk
+    DB <--> |Query/Update| SQLite
+    Main <--> |Execute| Shell
+```
 
 ## Key Features
 
@@ -19,8 +61,7 @@ GooseXplorer is a modern, high-performance, and feature-rich desktop File Explor
 
 - **Smart Autonamer**
   - Automatically suggests clean, formatted titles for files based on standard name pattern cleaning.
-  - Sanitizes underscores and dashes, strips extensions, and parses various date patterns (`YYYY_MM_DD`, `YYYY-MM-DD`, `YYYYMMDD`) into friendly dates (e.g., `March 11, 2024`).
-  - Includes tailored formatting for screenshots (e.g., matching `"screenshot_20240311.png"` to `"Screenshot taken March 11 2024"`).
+  - Sanitizes underscores and dashes, strips extensions, and parses various date patterns into friendly dates.
 
 - **Developer Integrations**
   - **Neovim (LazyVim)**: Launch Neovim directly in a new terminal window inside the target path.
@@ -31,8 +72,6 @@ GooseXplorer is a modern, high-performance, and feature-rich desktop File Explor
   - Completely custom frameless window wrapper with native minimize, maximize, and exit controls.
   - Glassmorphic, dark theme UI styled with TailwindCSS.
   - Context menu actions for directory navigation, opening in editor/shell, and metadata management.
-
----
 
 ## Directory Structure
 
@@ -57,8 +96,6 @@ GooseXplorer is a modern, high-performance, and feature-rich desktop File Explor
 ├── Cargo.toml                # Rust dependencies & package configuration
 └── tauri.conf.json           # Tauri v2 runtime & compile configuration
 ```
-
----
 
 ## Getting Started
 
@@ -89,8 +126,6 @@ GooseXplorer is a modern, high-performance, and feature-rich desktop File Explor
    cargo tauri dev
    ```
    *(Ensure you have the Tauri CLI installed: `cargo install tauri-cli` or run `npx tauri dev`)*
-
----
 
 ## Technical Details
 
